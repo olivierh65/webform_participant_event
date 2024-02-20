@@ -1,0 +1,7 @@
+name: 'Webform Handler Participant Event'
+type: module
+description: 'Creation du participant'
+package: Custom
+core_version_requirement: ^10
+dependencies:
+  - 'webform:webform'

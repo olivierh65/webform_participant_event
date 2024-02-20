@@ -1,0 +1,47 @@
+<?php
+
+use Drupal\Component\Utility\Variable;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\webform\Utility\WebformFormHelper;
+
+/**
+ * @file
+ * Primary module hooks for webform_participant_event module.
+ */
+/**
+ * Implements hook_theme().
+ */
+function webform_participant_event_theme() {
+    return [
+      'webform_participant_event_summary' => [
+        'variables' => ['settings' => NULL, 'handler' => []],
+      ],
+    ];
+  }
+  
+/**
+ * Implements hook_mail().
+ */
+function webform_participant_event_mail($key, &$message, $params) {
+  switch ($key) {
+    case 'user_coherence':
+      $message['from'] = \Drupal::config('system.site')->get('mail');
+      $message['subject'] = $params['subject'];
+      $message['body'][] = $params['message'];
+      $message['options'] = [];
+      if (isset($params['options']) && !empty($params['options'])) {
+        foreach ($params['options'] as $key => $value) {
+          $message['options'][$key] = $value;
+        }
+      }
+      break;
+  }
+}
+
+function webform_participant_event_form_webform_admin_settings_form_alter(array &$form, FormStateInterface $form_state) {
+  $elements = WebformFormHelper::flattenElements($form);
+}
+
+function webform_participant_event_form_webform_settings_form_alter(array &$form, FormStateInterface $form_state) {
+  $elements = WebformFormHelper::flattenElements($form);
+}
