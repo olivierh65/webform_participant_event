@@ -59,7 +59,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     // Perform bootstrap
     \Drupal::service('civicrm')->initialize();
     ////////////
-    $event_id = 218;
+    $event_id = 0;
     $destinataire = 'olivier@mcm65.famh.fr';
     ////////////
     $datas = $webform_submission->getData();
@@ -376,7 +376,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#options' => $evt_select,
       '#default_value' => $this->configuration['events'] ?? array_key_first($evt_select),
       '#ajax' => [
-        'callback' => [$this, 'mappingAjaxCallback'], // don't forget :: when calling a class method.
+        'callback' => [$this, 'mapping2AjaxCallback'], // don't forget :: when calling a class method.
         //'callback' => [$this, 'myAjaxCallback'], //alternative notation
         'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
         'event' => 'change',
@@ -385,23 +385,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
           'type' => 'throbber',
           'message' => $this->t('Verifying entry...'),
         ],
+        '#weight' => 0,
       ]
     ];
 
-    $webform_fields = [];
-    foreach ($this->getWebform()->getElementsDecodedAndFlattened() as $key => $field) {
-      switch ($field['#type']) {
-        case 'textfield':
-        case 'textarea':
-        case 'email':
-        case 'tel':
-        case 'radios':
-          $webform_fields[$key] = $field['#title'];
-          break;
-      }
-    }
+    $webform_fields = $this->get_webform_fields();
 
-    $form['fieldset_mapping']['mapping'] = [
+    /* $form['fieldset_mapping']['mapping'] = [
       '#type' => 'webform_mapping',
       '#title' => 'Attribut Mapping',
       '#tree' => TRUE,
@@ -411,8 +401,33 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#suffix' => '</div>',
       '#source' => $webform_fields,
       '#destination' => $this->get_event_attributs($form, $form_state),
-    ];
+    ]; */
 
+    $i = 0;
+
+    foreach ($webform_fields as $key => $fname) {
+      $form['fieldset_mapping'][$key] = [
+        '#type' => 'webform_flexbox',
+        '#align_items' => 'center',
+        '#weight' => $i,
+      ];
+
+      $form['fieldset_mapping'][$key]['field'] = [
+        '#type' => 'textfield',
+        '#default_value' => $fname,
+        '#disabled' => true,
+        '#size' => 15,
+
+      ];
+      $form['fieldset_mapping'][$key]['select'] = [
+        '#type' => 'select',
+        '#options' => $this->get_event_attributs($form, $form_state, true),
+        '#default_value' => $this->configuration['select_'.$key] ?? 0,
+        '#prefix' => '<div id="select_' . $key . '">',
+        '#suffix' => '</div>',
+      ];
+      $i++;
+    }
 
 
 
@@ -443,6 +458,22 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     // $this->getCustomFields($form, $form_state);
     return $this->setSettingsParents($form);
+  }
+
+  private function get_webform_fields() {
+    $webform_fields = [];
+    foreach ($this->getWebform()->getElementsDecodedAndFlattened() as $key => $field) {
+      switch ($field['#type']) {
+        case 'textfield':
+        case 'textarea':
+        case 'email':
+        case 'tel':
+        case 'radios':
+          $webform_fields[$key] = $field['#title'];
+          break;
+      }
+    }
+    return $webform_fields;
   }
 
   private function get_options(string $element) {
@@ -547,7 +578,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $elements = WebformFormHelper::flattenElements($form);
 
-    unset ($form['settings']['fieldset_mapping']['mapping']);
+    unset($form['settings']['fieldset_mapping']['mapping']);
 
     $webform_fields = [];
     foreach ($this->getWebform()->getElementsDecodedAndFlattened() as $key => $field) {
@@ -593,6 +624,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     }
   }
 
+
   // Get the value from example select field and fill
   // the textbox with the selected text.
   public function mapping1AjaxCallback(array &$form, FormStateInterface $form_state) {
@@ -614,6 +646,31 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       return $elements;
     }
   }
+
+  // Get the value from example select field and fill
+  // the textbox with the selected text.
+  public function mapping2AjaxCallback(array &$form, FormStateInterface $form_state) {
+    $attrib = $this->get_event_attributs($form, $form_state, true);
+    $elements = WebformFormHelper::flattenElements($form);
+    $event = $form_state->getValue('settings')['fieldset_mapping']['events'];
+    $event_config = $this->configuration['events'];
+    $response = new AjaxResponse();
+    foreach ($this->get_webform_fields() as $key => $field) {
+      $elements['fieldset_mapping'][$key]['select']['#options'] = $attrib;
+      if ($event == $event_config) {
+        // utilise #value et non #default_value
+        // voir https://www.drupal.org/project/drupal/issues/2895887
+        $elements['fieldset_mapping'][$key]['select']['#value'] = $this->configuration['select_'.$key];
+      }
+      else {
+        $elements['fieldset_mapping'][$key]['select']['#value'] = 0;
+      }
+      $response->addCommand(new ReplaceCommand("#select_" . $key, $elements['fieldset_mapping'][$key]['select']));
+    }
+    return $response;
+  }
+
+
 
   // Get the value from example select field and fill
   // the textbox with the selected text.
@@ -675,7 +732,14 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $this->configuration['field_response'] = $form_state->getValue('fieldset_noparticipe')['field_response'];
     $this->configuration['field_response_option'] = $form_state->getValue('fieldset_noparticipe')['status_response']['option'];
     $this->configuration['field_response_status'] = $form_state->getValue('fieldset_noparticipe')['status_response']['status'];
-    $this->configuration['events'] = $form_state->getValue('events');
+    $this->configuration['events'] = $form_state->getValue('fieldset_mapping')['events'];
+    foreach ($this->get_webform_fields() as $key => $field) {
+      $e = $form_state->getValue('fieldset_mapping')[$key];
+      if ($e['select'] == 0) {
+        continue;
+      }
+      $this->configuration['select_'.$key] = $e['select'];
+    }
   }
   /**
    * {@inheritdoc}
