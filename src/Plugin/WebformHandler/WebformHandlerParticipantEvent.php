@@ -58,10 +58,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $state = $webform_submission->getWebform()->getSetting('results_disabled') ? WebformSubmissionInterface::STATE_COMPLETED : $webform_submission->getState();
     // Perform bootstrap
     \Drupal::service('civicrm')->initialize();
-    ////////////
-    $event_id = 0;
-    $destinataire = 'olivier@mcm65.famh.fr';
-    ////////////
+
     $datas = $webform_submission->getData();
 
     if (!empty($datas['civicrm_id'])) {
@@ -74,15 +71,10 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       if ($contacts->count() != 1) {
         if ($contacts->count() == 0) {
           \Drupal::logger('webform_participant_event')->error('civicrm_id inconnu :' . $datas['civicrm_id'] .
-            ' Nom saisi :' . $datas['nom']);
-          $this->sendMail(
-            $destinataire,
-            '[handler] civicrm_id inconnu ' . $datas['nom'],
             'nom saisi : ' . $datas['nom'] . '<br>' .
-              'prenom saisi : ' . $datas['prenom'] . '<br>' .
-              'email saisi: ' . $datas['email'] . '<br>' .
-              'telephone saisi: ' . $datas['portable']
-          );
+            'prenom saisi : ' . $datas['prenom'] . '<br>' .
+            'email saisi: ' . $datas['email'] . '<br>' .
+            'telephone saisi: ' . $datas['portable']);
         }
         return;
       }
@@ -92,15 +84,10 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         (trim(strtolower($datas['email']))) != (trim(strtolower($contacts->first()['email_primary.email'])))
       ) {
         \Drupal::logger('webform_participant_event')->error('Incoherence user :' . $datas['civicrm_id'] .
-          ' Nom saisi :' . $datas['nom']);
-        $this->sendMail(
-          $destinataire,
-          '[handler] Incoherence user ' . $datas['nom'],
           'nom saisi : ' . $datas['nom'] . ' Civicrm=> ' . $contacts->first()['last_name'] . '<br>' .
-            'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
-            'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
-            'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']
-        );
+          'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
+          'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
+          'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']);
         return;
       }
     } else {
@@ -112,15 +99,10 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         ->setLimit(25)
         ->execute();
       if ($contacts->count() != 1) {
-        \Drupal::logger('webform_participant_event')->error('User inconnu : Nom saisi :' . $datas['nom']);
-        $this->sendMail(
-          $destinataire,
-          '[handler] User inconnu ' . $datas['nom'],
-          'nom saisi : ' . $datas['nom'] . ' Civicrm=> ' . $contacts->first()['last_name'] . '<br>' .
-            'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
-            'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
-            'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']
-        );
+        \Drupal::logger('webform_participant_event')->error('User inconnu : nom saisi : ' . $datas['nom'] . ' Civicrm=> ' . $contacts->first()['last_name'] . '<br>' .
+          'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
+          'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
+          'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']);
         return;
       } else {
         if (
@@ -129,76 +111,63 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
           (trim(strtolower($datas['email']))) != (trim(strtolower($contacts->first()['email_primary.email'])))
         ) {
           \Drupal::logger('webform_participant_event')->error('Incoherence user :' . $datas['civicrm_id'] .
-            ' Nom saisi :' . $datas['nom']);
-          $this->sendMail(
-            $destinataire,
-            '[handler] Incoherence user ' . $datas['nom'],
             'nom saisi : ' . $datas['nom'] . ' Civicrm=> ' . $contacts->first()['last_name'] . '<br>' .
-              'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
-              'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
-              'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']
-          );
+            'prenom saisi : ' . $datas['prenom'] . ' Civicrm=> ' . $contacts->first()['first_name'] . '<br>' .
+            'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
+            'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']);
           return;
         }
       }
       $datas['civicrm_id'] = $contacts->first()['id'];
     }
 
-    // recupere les status
-    $participantStatusTypes = \Civi\Api4\ParticipantStatusType::get(false)
-      ->addSelect('id', 'name', 'label', 'class:label', 'class', 'class:name')
-      ->addClause('OR', ['label', '=', 'Attente de validation'], ['label', '=', "A repondu, mais n'est pas disponible"])
-      ->setLimit(25)
-      ->execute();
-    $status = [];
-    foreach ($participantStatusTypes as $participantStatusType) {
-      if ($participantStatusType['class'] == 'Negative') {
-        $status['non'] = $participantStatusType['id'];
-        continue;
-      }
-      if ($participantStatusType['class'] == 'Waiting') {
-        $status['oui'] = $participantStatusType['id'];
-        continue;
-      }
-    }
 
     $participants = \Civi\Api4\Participant::get(false)
-      ->addWhere('event_id', '=', $event_id)
+      ->addWhere('event_id', '=', $this->configuration['events'])
       ->addWhere('contact_id', '=', $datas['civicrm_id'])
-      ->setLimit(25)
       ->execute();
 
 
     if ($participants->count() == 0) {
-      $results = \Civi\Api4\Participant::create(FALSE)
+      $results = \Civi\Api4\Participant::create(false)
         ->addValue('contact_id', $datas['civicrm_id'])
-        ->addValue('event_id', $event_id)
-        ->addValue('status_id', strtolower($datas['participe_a_la_sortie']) == 'oui' ? $status['oui'] : $status['non'])
-        ->addValue('role_id', [
-          1,
-        ])
-        ->addValue('sortie_Pascuet_Offroad_Center.Arrive_vendredi', strtolower($datas['repas_vendredi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.Depart_Lundi', strtolower($datas['petit_dej_lundi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.Observations', $datas['observations'])
-        ->addValue('sortie_Pascuet_Offroad_Center.Roule_lundi', strtolower($datas['roulage_lundi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.groupe', $datas['groupe'])
-        ->execute();
+        ->addValue('event_id', $this->configuration['events']);
     } else {
       $results = \Civi\Api4\Participant::update(false)
-        ->addValue('status_id', strtolower($datas['participe_a_la_sortie']) == 'oui' ? $status['oui'] : $status['non'])
-        ->addValue('role_id', [
-          1,
-        ])
-        ->addValue('sortie_Pascuet_Offroad_Center.Arrive_vendredi', strtolower($datas['repas_vendredi']) == 'oui' ? 1 : 0)
+        ->addWhere('contact_id', '=', $datas['civicrm_id'])
+        ->addWhere('event_id', '=', $this->configuration['events']);
+    }
+    $results->addValue('status_id', $datas[$this->configuration['field_inscrit']] == $this->configuration['field_inscrit_option'] ?
+      $this->configuration['field_inscrit_status'] :
+      $this->configuration['field_response_status'])
+      ->addValue('role_id', [
+        1,
+      ]);
+
+    $customGroups = \Civi\Api4\CustomGroup::get(FALSE)
+      ->addSelect('id', 'name', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
+      ->addJoin('CustomField AS custom_field', 'LEFT', ['custom_field.custom_group_id', '=', 'id'])
+      ->addWhere('extends_entity_column_value', 'CONTAINS', $this->configuration['events'])
+      ->execute();
+
+    foreach ($customGroups as $key => $fname) {
+      $tmp_data = $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)];
+      if (!empty($tmp_data)) {
+        $results->addValue(
+          $fname['name'] . '.' . $fname['custom_field.name'],
+          // remove 'select_' from configuration variable
+          $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)]
+        );
+      }
+    }
+
+    /* ->addValue('sortie_Pascuet_Offroad_Center.Arrive_vendredi', strtolower($datas['repas_vendredi']) == 'oui' ? 1 : 0)
         ->addValue('sortie_Pascuet_Offroad_Center.Depart_Lundi', strtolower($datas['petit_dej_lundi']) == 'oui' ? 1 : 0)
         ->addValue('sortie_Pascuet_Offroad_Center.Observations', $datas['observations'])
         ->addValue('sortie_Pascuet_Offroad_Center.Roule_lundi', strtolower($datas['roulage_lundi']) == 'oui' ? 1 : 0)
         ->addValue('sortie_Pascuet_Offroad_Center.groupe', $datas['groupe'])
-        ->addWhere('contact_id', '=', $datas['civicrm_id'])
-        ->addWhere('event_id', '=', $event_id)
-        /* ->addWhere('id', '=', $participants->first()['id']) */
-        ->execute();
-    }
+        ->execute(); */
+    $results->execute();
   }
 
   private function sendMail($to, $subject, $message) {
@@ -252,6 +221,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#return_value' => TRUE,
       '#default_value' => $this->configuration['debug'] ?? false,
     ];
+
 
     // $radios[0] = 'Select field...';
     $radios = [];
@@ -389,6 +359,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       ]
     ];
 
+    $form['fieldset_mapping']['events_name'] = [
+      '#type' => 'hidden',
+      '#title' => 'Event system name',
+      '#default_value' => $this->configuration['events_name'] ?? $this->get_event_attributs($form, $form_state, true)[1],
+    ];
+
+
     $webform_fields = $this->get_webform_fields();
 
     /* $form['fieldset_mapping']['mapping'] = [
@@ -405,7 +382,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $i = 0;
 
-    foreach ($webform_fields as $key => $fname) {
+    foreach ($webform_fields[0] as $key => $fname) {
       $form['fieldset_mapping'][$key] = [
         '#type' => 'webform_flexbox',
         '#align_items' => 'center',
@@ -421,40 +398,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       ];
       $form['fieldset_mapping'][$key]['select'] = [
         '#type' => 'select',
-        '#options' => $this->get_event_attributs($form, $form_state, true),
-        '#default_value' => $this->configuration['select_'.$key] ?? 0,
+        '#options' => $this->get_event_attributs($form, $form_state, true)[0],
+        '#default_value' => $this->configuration['select_' . $key] ?? 0,
         '#prefix' => '<div id="select_' . $key . '">',
         '#suffix' => '</div>',
       ];
       $i++;
     }
-
-
-
-    /* $form['fields'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Fields ...'),
-      '#prefix' => '<div id="mapping-field">',
-      '#suffix' => '</div>',
-      '#options' => $this->get_event_attributs($form, $form_state),
-      '#validated' => 'true',
-    ];
-    $form['fields1'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Fields ...'),
-      '#prefix' => '<div id="mapping1-field">',
-      '#suffix' => '</div>',
-      '#options' => $this->get_event_attributs($form, $form_state),
-      '#validated' => 'true',
-    ];
-    $form['fields2'] = [
-      '#type' => 'select',
-      '#title' => $this->t('Fields ...'),
-      '#prefix' => '<div id="mapping2-field">',
-      '#suffix' => '</div>',
-      '#options' => $this->get_event_attributs($form, $form_state),
-      '#validated' => 'true',
-    ]; */
 
     // $this->getCustomFields($form, $form_state);
     return $this->setSettingsParents($form);
@@ -462,6 +412,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
   private function get_webform_fields() {
     $webform_fields = [];
+    $webform_fields_type = [];
     foreach ($this->getWebform()->getElementsDecodedAndFlattened() as $key => $field) {
       switch ($field['#type']) {
         case 'textfield':
@@ -469,11 +420,14 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         case 'email':
         case 'tel':
         case 'radios':
+        case 'checkbox':
+        case 'hidden':
           $webform_fields[$key] = $field['#title'];
+          $webform_fields_type[$key] = $field['#type'];
           break;
       }
     }
-    return $webform_fields;
+    return [$webform_fields, $webform_fields_type];
   }
 
   private function get_options(string $element) {
@@ -508,7 +462,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     }
 
     $customGroups = \Civi\Api4\CustomGroup::get(FALSE)
-      ->addSelect('id', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
+      ->addSelect('id', 'name', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
       ->addJoin('CustomField AS custom_field', 'LEFT', ['custom_field.custom_group_id', '=', 'id'])
       ->addWhere('extends_entity_column_value', 'CONTAINS', $selctedOption)
       ->execute();
@@ -522,35 +476,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     foreach ($customGroups as $customGroup) {
       $custom_fields[$customGroup['custom_field.id']] = $customGroup['custom_field.label'];
     }
-    return $custom_fields;
+    return [$custom_fields, $customGroups->first()['name'], $customGroups->first()['id']];
   }
 
-  private function getCustomFields($form, $form_state) {
-
-    if ($form_state->getValue('settings')['events']) {
-      // akready initialized
-      return;
-    }
-
-    $selctedOption = $form['events']['#default_value'];
-
-    $customGroups = \Civi\Api4\CustomGroup::get(false)
-      ->addSelect('id', 'name', 'title')
-      ->addWhere('extends_entity_column_value', '=', $selctedOption)
-      ->addChain(
-        'fields',
-        \Civi\Api4\CustomField::get(TRUE)
-          ->addWhere('custom_group_id', '=', '$id')
-      )
-      ->execute();
-
-    $form['fields']['#options'] = [];
-    foreach ($customGroups as $customGroup) {
-      foreach ($customGroup['fields'] as $field) {
-        $form['fields']['#options'][$field['id']] = $field['label'];
-      }
-    }
-  }
 
 
   public function responseOptionCallback(array &$form, FormStateInterface $form_state) {
@@ -574,7 +502,8 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
   // Get the value from example select field and fill
   // the textbox with the selected text.
   public function mappingAjaxCallback(array &$form, FormStateInterface $form_state) {
-    $attrib = $this->get_event_attributs($form, $form_state, true);
+    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $attrib = $info_attrib[0];
 
     $elements = WebformFormHelper::flattenElements($form);
 
@@ -628,7 +557,8 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
   // Get the value from example select field and fill
   // the textbox with the selected text.
   public function mapping1AjaxCallback(array &$form, FormStateInterface $form_state) {
-    $attrib = $this->get_event_attributs($form, $form_state);
+    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $attrib = $info_attrib[0];
 
     $elements = WebformFormHelper::flattenElements($form);
 
@@ -650,20 +580,22 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
   // Get the value from example select field and fill
   // the textbox with the selected text.
   public function mapping2AjaxCallback(array &$form, FormStateInterface $form_state) {
-    $attrib = $this->get_event_attributs($form, $form_state, true);
+    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $attrib = $info_attrib[0];
     $elements = WebformFormHelper::flattenElements($form);
     $event = $form_state->getValue('settings')['fieldset_mapping']['events'];
     $event_config = $this->configuration['events'];
     $response = new AjaxResponse();
-    foreach ($this->get_webform_fields() as $key => $field) {
+    foreach ($this->get_webform_fields()[0] as $key => $field) {
       $elements['fieldset_mapping'][$key]['select']['#options'] = $attrib;
       if ($event == $event_config) {
         // utilise #value et non #default_value
         // voir https://www.drupal.org/project/drupal/issues/2895887
-        $elements['fieldset_mapping'][$key]['select']['#value'] = $this->configuration['select_'.$key];
-      }
-      else {
+        $elements['fieldset_mapping'][$key]['select']['#value'] = $this->configuration['select_' . $key];
+        $elements['fieldset_mapping']['events_name']['#value'] = $this->configuration['events_name'] ?? $info_attrib[1];
+      } else {
         $elements['fieldset_mapping'][$key]['select']['#value'] = 0;
+        $elements['fieldset_mapping']['events_name']['#value'] = $info_attrib[1];
       }
       $response->addCommand(new ReplaceCommand("#select_" . $key, $elements['fieldset_mapping'][$key]['select']));
     }
@@ -733,12 +665,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $this->configuration['field_response_option'] = $form_state->getValue('fieldset_noparticipe')['status_response']['option'];
     $this->configuration['field_response_status'] = $form_state->getValue('fieldset_noparticipe')['status_response']['status'];
     $this->configuration['events'] = $form_state->getValue('fieldset_mapping')['events'];
-    foreach ($this->get_webform_fields() as $key => $field) {
+    $this->configuration['events_name'] = $form_state->getValue('fieldset_mapping')['events_name'];
+    foreach ($this->get_webform_fields()[0] as $key => $field) {
       $e = $form_state->getValue('fieldset_mapping')[$key];
       if ($e['select'] == 0) {
         continue;
       }
-      $this->configuration['select_'.$key] = $e['select'];
+      $this->configuration['select_' . $key] = $e['select'];
     }
   }
   /**
@@ -783,7 +716,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
    * {@inheritdoc}
    */
   public function confirmForm(array &$form, FormStateInterface $form_state, WebformSubmissionInterface $webform_submission) {
-    $message = $this->configuration['message'];
+    $message = $this->configuration['message']['message'];
     $message = $this->replaceTokens($message, $this->getWebformSubmission());
     $this->messenger()->addStatus(Markup::create(Xss::filter($message)), FALSE);
     $this->debug(__FUNCTION__);
