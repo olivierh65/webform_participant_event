@@ -19,15 +19,18 @@ use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Ajax\BeforeCommand;
 use Drupal\Component\Utility\NestedArray;
 
+use Drupal\webform\Entity\Webform;
+use Drupal\webform\Entity\WebformSubmission;
+use Drupal\webform\WebformSubmissionForm;
 
 /**
  * Webform civi handler.
  *
  * @WebformHandler(
  *   id = "participant_participant_event",
- *   label = @Translation("participant_participant_event"),
+ *   label = @Translation("Register participant - Civicrm Event"),
  *   category = @Translation("CiviCRM"),
- *   description = @Translation("Create participant for an event."),
+ *   description = @Translation("Try to find previous submission (for anonumous user) and create participant for an event."),
  *   cardinality = \Drupal\webform\Plugin\WebformHandlerInterface::CARDINALITY_SINGLE,
  *   results = \Drupal\webform\Plugin\WebformHandlerInterface::RESULTS_IGNORED,
  *   submission = \Drupal\webform\Plugin\WebformHandlerInterface::SUBMISSION_REQUIRED,
@@ -151,13 +154,15 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       ->execute();
 
     foreach ($customGroups as $key => $fname) {
-      $tmp_data = $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)];
-      if (!empty($tmp_data)) {
-        $results->addValue(
-          $fname['name'] . '.' . $fname['custom_field.name'],
-          // remove 'select_' from configuration variable
-          $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)]
-        );
+      if (array_search($fname['custom_field.id'], $this->configuration)) {
+        $tmp_data = $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)];
+        if (!empty($tmp_data)) {
+          $results->addValue(
+            $fname['name'] . '.' . $fname['custom_field.name'],
+            // remove 'select_' from configuration variable
+            $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)]
+          );
+        }
       }
     }
 
@@ -700,6 +705,42 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
    */
   public function validateForm(array &$form, FormStateInterface $form_state, WebformSubmissionInterface $webform_submission) {
     $this->debug(__FUNCTION__);
+
+    // check if attribute 'check_existing' exist in Element custom attributes for this Wizard Page element
+    // and if is set to true
+    if ((isset($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'])) &&
+      ($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'] == true)
+    ) {
+      // check if an submission exist
+      $previus_webform_submission = $form_state->getFormObject()->getEntity();
+      if ($previus_webform_submission->getState() == 'unsaved') {
+        // new submission
+        // check if there is a submission for this user (anonymous)
+
+        // Static query
+        // https://www.drupal.org/docs/drupal-apis/database-api/static-queries
+        $database = \Drupal::database();
+        $result = $database->query("SELECT max(sid) as sid FROM `drupal_webform_submission_data` WHERE `webform_id` = '" .
+          $this->getWebform()->id() . "' and name = 'civicrm_id' and value = '" . $form_state->getValue('civicrm_id') . "';");
+        // last previous submission for this civicrm_id
+        if ($result) {
+          while ($row = $result->fetchAssoc()) {
+            if ($row['sid'] === null) {
+              continue;
+            }
+            // load submission
+            $webform_submission = WebformSubmission::load($row['sid']);
+            // and save it in form_state
+            $form_state->getFormObject()->setEntity($webform_submission);
+
+            foreach ($this->webformSubmission->getData() as $key => $value) {
+              // and set previous values
+              $form_state->setValue($key, $value);
+            }
+          }
+        }
+      }
+    }
     if ($value = $form_state->getValue('element')) {
       $form_state->setErrorByName('element', $this->t('The element must be empty. You entered %value.', ['%value' => $value]));
     }
