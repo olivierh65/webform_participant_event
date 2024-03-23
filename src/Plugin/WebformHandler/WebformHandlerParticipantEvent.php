@@ -227,6 +227,30 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#default_value' => $this->configuration['debug'] ?? false,
     ];
 
+    $pages = [];
+    $pages[0] = "Select ...";
+    foreach ($this->getWebform()->getElementsDecoded() as $key => $field) {
+      if ($field['#type'] == 'webform_wizard_page') {
+        if (isset($field['civicrm_id'])) {
+        $pages[$key] = $field['#title'];
+        }
+      }
+    }
+    
+    $form['prev_submission'] = [
+      '#type' => 'fieldset',
+      '#title' => 'Retreive previous submission',
+      '#description' => 'Search if a previous submission exist using <b>civicrm_id</b> hidden field.',
+    ];
+    $form['prev_submission']['check_on_page'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Recherche de soumission sur la page'),
+      '#options' => $pages,
+      '#description' => 'Show only pages with an hidden field named <b>civicrm_id</b>.',
+      '#access' => count($pages) > 1 ? true : false,
+      '#default_value' => $this->configuration['check_on_page'] ?? array_key_first($pages),
+    ];
+
 
     // $radios[0] = 'Select field...';
     $radios = [];
@@ -373,20 +397,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $webform_fields = $this->get_webform_fields();
 
-    /* $form['fieldset_mapping']['mapping'] = [
-      '#type' => 'webform_mapping',
-      '#title' => 'Attribut Mapping',
-      '#tree' => TRUE,
-      '#source__title' => 'Webform',
-      '#destination__title' => 'CiviCRM Event',
-      '#prefix' => '<div id="mappingfield">',
-      '#suffix' => '</div>',
-      '#source' => $webform_fields,
-      '#destination' => $this->get_event_attributs($form, $form_state),
-    ]; */
-
     $i = 0;
-
     foreach ($webform_fields[0] as $key => $fname) {
       $form['fieldset_mapping'][$key] = [
         '#type' => 'webform_flexbox',
@@ -539,11 +550,6 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#destination' => $attrib,
     ];
 
-    /* $elements['fieldset_mapping']['mapping']['#destination'] = $attrib;
-    $elements['fieldset_mapping']['mapping']['#tree'] = TRUE;
-    $form['general']['#tree'] = TRUE;
-    $form['#tree'] = true; */
-
     // Reconstruit l'element
     // lors du traitement, les données de #destination sont recopiées dans la table
     WebformMapping::processWebformMapping($element, $form_state, $form);
@@ -678,6 +684,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       }
       $this->configuration['select_' . $key] = $e['select'];
     }
+    $this->configuration['check_on_page'] = $form_state->getValue('prev_submission')['check_on_page'];
   }
   /**
    * {@inheritdoc}
@@ -704,13 +711,14 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
    * {@inheritdoc}
    */
   public function validateForm(array &$form, FormStateInterface $form_state, WebformSubmissionInterface $webform_submission) {
-    $this->debug(__FUNCTION__);
 
-    // check if attribute 'check_existing' exist in Element custom attributes for this Wizard Page element
+    /* // check if attribute 'check_existing' exist in Element custom attributes for this Wizard Page element
     // and if is set to true
     if ((isset($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'])) &&
       ($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'] == true)
-    ) {
+    ) { */
+      if ((isset($this->configuration['check_on_page'])) &&
+          ($this->configuration['check_on_page'] == $form['progress']['#current_page'] )) {
       // check if an submission exist
       $previus_webform_submission = $form_state->getFormObject()->getEntity();
       if ($previus_webform_submission->getState() == 'unsaved') {
@@ -740,9 +748,6 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
           }
         }
       }
-    }
-    if ($value = $form_state->getValue('element')) {
-      $form_state->setErrorByName('element', $this->t('The element must be empty. You entered %value.', ['%value' => $value]));
     }
   }
 
