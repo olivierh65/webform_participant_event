@@ -140,12 +140,14 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         ->addWhere('contact_id', '=', $datas['civicrm_id'])
         ->addWhere('event_id', '=', $this->configuration['events']);
     }
+    $date = new \DateTimeImmutable();
     $results->addValue('status_id', $datas[$this->configuration['field_inscrit']] == $this->configuration['field_inscrit_option'] ?
-      $this->configuration['field_inscrit_status'] :
-      $this->configuration['field_response_status'])
+        $this->configuration['field_inscrit_status'] :
+        $this->configuration['field_response_status'])
       ->addValue('role_id', [
-        1,
-      ]);
+          1,
+        ])
+      ->addValue('register_date', $date->format('Y-m-d H:i:s'));
 
     $customGroups = \Civi\Api4\CustomGroup::get(FALSE)
       ->addSelect('id', 'name', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
