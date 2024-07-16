@@ -367,7 +367,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $form['fieldset_mapping'] = [
       '#type' => 'fieldset',
-      '#title' => 'Corresponsance des attributs',
+      '#title' => 'Correspondance des attributs',
       '#tree' => true,
     ];
 
@@ -440,6 +440,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         case 'radios':
         case 'checkbox':
         case 'hidden':
+        // case 'checkboxes':
           $webform_fields[$key] = $field['#title'];
           $webform_fields_type[$key] = $field['#type'];
           break;
