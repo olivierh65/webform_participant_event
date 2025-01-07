@@ -69,7 +69,6 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       $contacts = \Civi\Api4\Contact::get(false)
         ->addSelect('id', 'first_name', 'last_name', 'email_primary.email', 'phone_primary.phone')
         ->addWhere('id', '=', $datas['civicrm_id'])
-        ->setLimit(25)
         ->execute();
       if ($contacts->count() != 1) {
         if ($contacts->count() == 0) {
@@ -159,10 +158,27 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       if (array_search($fname['custom_field.id'], $this->configuration)) {
         $tmp_data = $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)];
         if (!empty($tmp_data)) {
+          switch ($fname['custom_field.data_type']) {
+            case 'String':
+              $tmp_data = Xss::filter($tmp_data);
+              break;
+            case 'Integer':
+              $tmp_data = (int) $tmp_data;
+              break;
+            case 'Float':
+              $tmp_data = (float) $tmp_data;
+              break;
+            case 'Date':
+              $tmp_data = new \DateTimeImmutable($tmp_data);
+              break;
+            case 'Boolean':
+              $tmp_data = strtolower($tmp_data) == 'oui' || 'yes' ? 1 : 0;
+              break;
+          }
           $results->addValue(
             $fname['name'] . '.' . $fname['custom_field.name'],
             // remove 'select_' from configuration variable
-            $datas[substr(array_search($fname['custom_field.id'], $this->configuration), 7)]
+            $tmp_data
           );
         }
       }
