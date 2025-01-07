@@ -456,6 +456,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         case 'radios':
         case 'checkbox':
         case 'hidden':
+          case 'webform_scale':
         // case 'checkboxes':
           $webform_fields[$key] = $field['#title'];
           $webform_fields_type[$key] = $field['#type'];
