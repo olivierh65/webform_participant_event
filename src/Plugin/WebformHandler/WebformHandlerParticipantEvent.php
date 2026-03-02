@@ -2,6 +2,14 @@
 
 namespace Drupal\webform_participant_event\Plugin\WebformHandler;
 
+use Civi\Api4\CustomField;
+use Drupal\Core\Form\SubformState;
+use Civi\Api4\ParticipantStatusType;
+use Civi\Api4\Event;
+use Civi\Api4\CustomGroup;
+use Civi\Api4\Participant;
+use Civi\Api4\Contact;
+use Civi\Api4\UFMatch;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Render\Markup;
@@ -14,14 +22,9 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\webform\Utility\WebformFormHelper;
 
 use Drupal\Core\Ajax\AjaxResponse;
-use Drupal\Core\Ajax\InsertCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
-use Drupal\Core\Ajax\BeforeCommand;
-use Drupal\Component\Utility\NestedArray;
 
-use Drupal\webform\Entity\Webform;
 use Drupal\webform\Entity\WebformSubmission;
-use Drupal\webform\WebformSubmissionForm;
 
 /**
  * Webform civi handler.
@@ -59,14 +62,47 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
    */
   public function postSave(WebformSubmissionInterface $webform_submission, $update = TRUE) {
     $state = $webform_submission->getWebform()->getSetting('results_disabled') ? WebformSubmissionInterface::STATE_COMPLETED : $webform_submission->getState();
-    // Perform bootstrap
+
+    $current_page = $webform_submission->getCurrentPage();
+    $last_page = array_key_last($webform_submission->getWebform()->getPages());
+
+    if ($current_page !== $last_page) {
+      // Only process on last page submission, to be sure all data are collected.
+      return;
+    }
+    // Perform bootstrap.
     \Drupal::service('civicrm')->initialize();
 
     $datas = $webform_submission->getData();
+    if (empty($datas['civicrm_id'])) {
+      // No civicrm_id, if user is connected, try to retrieve civicrm_id from contact_id field.
+      $user = \Drupal::currentUser();
+      if ($user->isAuthenticated()) {
+        $contact_id = UFMatch::get(FALSE)
+          ->addSelect('contact_id')
+          ->addWhere('uf_id', '=', $user->id())
+          ->execute()
+          ->first()['contact_id'] ?? NULL;
+        if ($contact_id) {
+          $datas['civicrm_id'] = $contact_id;
+
+          if (empty($data['nom']) || empty($data['prenom']) || empty($data['email'])) {
+            $contact = Contact::get(FALSE)
+              ->addSelect('first_name', 'last_name', 'email_primary.email')
+              ->addWhere('id', '=', $contact_id)
+              ->execute()
+              ->first();
+            $datas['nom'] = $contact['last_name'];
+            $datas['prenom'] = $contact['first_name'];
+            $datas['email'] = $contact['email_primary.email'];
+          }
+        }
+      }
+    }
 
     if (!empty($datas['civicrm_id'])) {
-      // verifie si les informations de contact sont coherentes
-      $contacts = \Civi\Api4\Contact::get(false)
+      // Verifie si les informations de contact sont coherentes.
+      $contacts = Contact::get(FALSE)
         ->addSelect('id', 'first_name', 'last_name', 'email_primary.email', 'phone_primary.phone')
         ->addWhere('id', '=', $datas['civicrm_id'])
         ->execute();
@@ -92,9 +128,10 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
           'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']);
         return;
       }
-    } else {
-      // Pas d'id, recherche par email
-      $contacts = \Civi\Api4\Contact::get(false)
+    }
+    elseif (!empty($datas['email'])) {
+      // Pas d'id, recherche par email.
+      $contacts = Contact::get(FALSE)
         ->addSelect('id', 'first_name', 'last_name', 'email_primary.email', 'phone_primary.phone')
         ->addWhere('email_primary.email', '=', trim($datas['email']))
         ->addWhere('last_name', '=', trim($datas['nom']))
@@ -106,7 +143,8 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
           'email saisi: ' . $datas['email'] . ' Civicrm=> ' . $contacts->first()['email_primary.email'] . '<br>' .
           'telephone saisi: ' . $datas['portable'] . ' Civicrm=> ' . $contacts->first()['phone_primary.phone']);
         return;
-      } else {
+      }
+      else {
         if (
           (trim(strtolower($datas['nom']))) != (trim(strtolower($contacts->first()['last_name']))) ||
           (trim(strtolower($datas['prenom']))) != (trim(strtolower($contacts->first()['first_name']))) ||
@@ -122,20 +160,28 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       }
       $datas['civicrm_id'] = $contacts->first()['id'];
     }
+    else {
+      \Drupal::logger('webform_participant_event')->error('Aucun identifiant de contact fourni pour la soumission ID: ' . $webform_submission->id());
+      $this->sendMail('olivier.hertrich@gmail.com', 'Webform Participant Event - Missing contact identifier', 'Aucun identifiant de contact fourni pour la soumission ID: ' . $webform_submission->id() . '<br>' .
+        'nom saisi : ' . $datas['nom'] . '<br>' .
+        'prenom saisi : ' . $datas['prenom'] . '<br>' .
+        'email saisi: ' . $datas['email'] . '<br>' .
+        'telephone saisi: ' . $datas['portable']);
+      return;
+    }
 
-
-    $participants = \Civi\Api4\Participant::get(false)
+    $participants = Participant::get(FALSE)
       ->addWhere('event_id', '=', $this->configuration['events'])
       ->addWhere('contact_id', '=', $datas['civicrm_id'])
       ->execute();
 
-
     if ($participants->count() == 0) {
-      $results = \Civi\Api4\Participant::create(false)
+      $results = Participant::create(FALSE)
         ->addValue('contact_id', $datas['civicrm_id'])
         ->addValue('event_id', $this->configuration['events']);
-    } else {
-      $results = \Civi\Api4\Participant::update(false)
+    }
+    else {
+      $results = Participant::update(FALSE)
         ->addWhere('contact_id', '=', $datas['civicrm_id'])
         ->addWhere('event_id', '=', $this->configuration['events']);
     }
@@ -144,11 +190,11 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         $this->configuration['field_inscrit_status'] :
         $this->configuration['field_response_status'])
       ->addValue('role_id', [
-          1,
-        ])
+        1,
+      ])
       ->addValue('register_date', $date->format('Y-m-d H:i:s'));
 
-    $customGroups = \Civi\Api4\CustomGroup::get(FALSE)
+    $customGroups = CustomGroup::get(FALSE)
       ->addSelect('id', 'name', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
       ->addJoin('CustomField AS custom_field', 'LEFT', ['custom_field.custom_group_id', '=', 'id'])
       ->addWhere('extends_entity_column_value', 'CONTAINS', $this->configuration['events'])
@@ -162,22 +208,26 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
             case 'String':
               $tmp_data = Xss::filter($tmp_data);
               break;
+
             case 'Integer':
               $tmp_data = (int) $tmp_data;
               break;
+
             case 'Float':
               $tmp_data = (float) $tmp_data;
               break;
+
             case 'Date':
               $tmp_data = new \DateTimeImmutable($tmp_data);
               break;
+
             case 'Boolean':
               $tmp_data = strtolower($tmp_data) == 'oui' || 'yes' ? 1 : 0;
               break;
           }
           $results->addValue(
             $fname['name'] . '.' . $fname['custom_field.name'],
-            // remove 'select_' from configuration variable
+            // Remove 'select_' from configuration variable.
             $tmp_data
           );
         }
@@ -185,14 +235,17 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     }
 
     /* ->addValue('sortie_Pascuet_Offroad_Center.Arrive_vendredi', strtolower($datas['repas_vendredi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.Depart_Lundi', strtolower($datas['petit_dej_lundi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.Observations', $datas['observations'])
-        ->addValue('sortie_Pascuet_Offroad_Center.Roule_lundi', strtolower($datas['roulage_lundi']) == 'oui' ? 1 : 0)
-        ->addValue('sortie_Pascuet_Offroad_Center.groupe', $datas['groupe'])
-        ->execute(); */
+    ->addValue('sortie_Pascuet_Offroad_Center.Depart_Lundi', strtolower($datas['petit_dej_lundi']) == 'oui' ? 1 : 0)
+    ->addValue('sortie_Pascuet_Offroad_Center.Observations', $datas['observations'])
+    ->addValue('sortie_Pascuet_Offroad_Center.Roule_lundi', strtolower($datas['roulage_lundi']) == 'oui' ? 1 : 0)
+    ->addValue('sortie_Pascuet_Offroad_Center.groupe', $datas['groupe'])
+    ->execute(); */
     $results->execute();
   }
 
+  /**
+   *
+   */
   private function sendMail($to, $subject, $message) {
 
     $module = 'webform_participant_event';
@@ -205,7 +258,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $params['message'] = $message;
 
     $mailManager = \Drupal::service('plugin.manager.mail');
-    $mailManager->mail($module, $key, $to, null, $params, $reply, $send);
+    $mailManager->mail($module, $key, $to, NULL, $params, $reply, $send);
   }
 
   /**
@@ -213,13 +266,12 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
    */
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
 
-
-    // Perform bootstrap
+    // Perform bootstrap.
     \Drupal::service('civicrm')->initialize();
     $form = parent::buildConfigurationForm($form, $form_state);
 
-    $form['#tree'] = true;
-    $form['general']['#tree'] = true;
+    $form['#tree'] = TRUE;
+    $form['general']['#tree'] = TRUE;
     // Message.
     $form['message'] = [
       '#type' => 'fieldset',
@@ -242,7 +294,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#title' => $this->t('Enable debugging'),
       '#description' => $this->t('If checked, every handler method invoked will be displayed onscreen to all users.'),
       '#return_value' => TRUE,
-      '#default_value' => $this->configuration['debug'] ?? false,
+      '#default_value' => $this->configuration['debug'] ?? FALSE,
     ];
 
     $pages = [];
@@ -250,11 +302,11 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     foreach ($this->getWebform()->getElementsDecoded() as $key => $field) {
       if ($field['#type'] == 'webform_wizard_page') {
         if (isset($field['civicrm_id'])) {
-        $pages[$key] = $field['#title'];
+          $pages[$key] = $field['#title'];
         }
       }
     }
-    
+
     $form['prev_submission'] = [
       '#type' => 'fieldset',
       '#title' => 'Retreive previous submission',
@@ -265,10 +317,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#title' => $this->t('Recherche de soumission sur la page'),
       '#options' => $pages,
       '#description' => 'Show only pages with an hidden field named <b>civicrm_id</b>.',
-      '#access' => count($pages) > 1 ? true : false,
+      '#access' => count($pages) > 1 ? TRUE : FALSE,
       '#default_value' => $this->configuration['check_on_page'] ?? array_key_first($pages),
     ];
-
 
     // $radios[0] = 'Select field...';
     $radios = [];
@@ -280,7 +331,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $form['fieldset_participe'] = [
       '#type' => 'fieldset',
-      '#title' => 'Participation'
+      '#title' => 'Participation',
     ];
 
     $form['fieldset_participe']['field_inscrit'] = [
@@ -289,15 +340,18 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#options' => $radios,
       '#default_value' => $this->configuration['field_inscrit'] ?? array_key_first($radios),
       '#ajax' => [
-        'callback' => [$this, 'inscritOptionCallback'], // don't forget :: when calling a class method.
-        'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
+    // don't forget :: when calling a class method.
+        'callback' => [$this, 'inscritOptionCallback'],
+    // Or TRUE to prevent re-focusing on the triggering element.
+        'disable-refocus' => FALSE,
         'event' => 'change',
-        'wrapper' => 'option-inscription-field', // This element is updated with this AJAX callback.
+    // This element is updated with this AJAX callback.
+        'wrapper' => 'option-inscription-field',
         'progress' => [
           'type' => 'throbber',
           'message' => $this->t('Verifying entry...'),
         ],
-      ]
+      ],
     ];
 
     $form['fieldset_participe']['status_inscription'] = [
@@ -308,7 +362,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#type' => 'select',
       '#title' => $this->t('Valeur indiquant la participation'),
       '#options' => $form_state->getValue('settings')['fieldset_participe']['field_inscrit'] ??
-        $this->get_options($form['fieldset_participe']['field_inscrit']['#default_value']),
+      $this->get_options($form['fieldset_participe']['field_inscrit']['#default_value']),
       '#default_value' => $this->configuration['field_inscrit_option'] ?? 0,
       '#prefix' => '<div id="option-inscription-field">',
       '#suffix' => '</div>',
@@ -318,7 +372,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $form['fieldset_participe']['status_inscription']['status'] = [
       '#type' => 'select',
       '#title' => $this->t('Status de participation'),
-      '#options' => $this->get_status(true),
+      '#options' => $this->get_status(TRUE),
       '#default_value' => $this->configuration['field_inscrit_status'] ?? 0,
       '#prefix' => '<div id="status-inscription-field">',
       '#suffix' => '</div>',
@@ -327,7 +381,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $form['fieldset_noparticipe'] = [
       '#type' => 'fieldset',
-      '#title' => 'Non participation'
+      '#title' => 'Non participation',
     ];
 
     $form['fieldset_noparticipe']['field_response'] = [
@@ -336,15 +390,18 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#options' => $radios,
       '#default_value' => $this->configuration['field_response'] ?? array_key_first($radios),
       '#ajax' => [
-        'callback' => [$this, 'responseOptionCallback'], // don't forget :: when calling a class method.
-        'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
+    // don't forget :: when calling a class method.
+        'callback' => [$this, 'responseOptionCallback'],
+    // Or TRUE to prevent re-focusing on the triggering element.
+        'disable-refocus' => FALSE,
         'event' => 'change',
-        'wrapper' => 'option-response-field', // This element is updated with this AJAX callback.
+    // This element is updated with this AJAX callback.
+        'wrapper' => 'option-response-field',
         'progress' => [
           'type' => 'throbber',
           'message' => $this->t('Verifying entry...'),
         ],
-      ]
+      ],
     ];
     $form['fieldset_noparticipe']['status_response'] = [
       '#type' => 'webform_flexbox',
@@ -354,7 +411,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#type' => 'select',
       '#title' => $this->t('Valeur indiquant la non participation'),
       '#options' => $form_state->getValue('settings')['fieldset_noparticipe']['field_response'] ??
-        $this->get_options($form['fieldset_noparticipe']['field_response']['#default_value']),
+      $this->get_options($form['fieldset_noparticipe']['field_response']['#default_value']),
       '#default_value' => $this->configuration['field_response_option'] ?? 0,
       '#prefix' => '<div id="option-response-field">',
       '#suffix' => '</div>',
@@ -364,14 +421,14 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $form['fieldset_noparticipe']['status_response']['status'] = [
       '#type' => 'select',
       '#title' => $this->t('Status de non participation'),
-      '#options' => $this->get_status(false),
+      '#options' => $this->get_status(FALSE),
       '#default_value' => $this->configuration['field_response_status'] ?? 0,
       '#prefix' => '<div id="status-response-field">',
       '#suffix' => '</div>',
       // '#access' => false,
     ];
 
-    $events = \Civi\Api4\Event::get(false)
+    $events = Event::get(FALSE)
       ->addSelect('title')
       ->addWhere('is_active', '=', TRUE)
       ->addOrderBy('created_date', 'DESC')
@@ -384,7 +441,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $form['fieldset_mapping'] = [
       '#type' => 'fieldset',
       '#title' => 'Correspondance des attributs',
-      '#tree' => true,
+      '#tree' => TRUE,
     ];
 
     $form['fieldset_mapping']['events'] = [
@@ -393,25 +450,27 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       '#options' => $evt_select,
       '#default_value' => $this->configuration['events'] ?? array_key_first($evt_select),
       '#ajax' => [
-        'callback' => [$this, 'mapping2AjaxCallback'], // don't forget :: when calling a class method.
-        //'callback' => [$this, 'myAjaxCallback'], //alternative notation
-        'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
+    // don't forget :: when calling a class method.
+        'callback' => [$this, 'mapping2AjaxCallback'],
+        // 'callback' => [$this, 'myAjaxCallback'], //alternative notation
+    // Or TRUE to prevent re-focusing on the triggering element.
+        'disable-refocus' => FALSE,
         'event' => 'change',
-        'wrapper' => 'mapping-field', // This element is updated with this AJAX callback.
+    // This element is updated with this AJAX callback.
+        'wrapper' => 'mapping-field',
         'progress' => [
           'type' => 'throbber',
           'message' => $this->t('Verifying entry...'),
         ],
         '#weight' => 0,
-      ]
+      ],
     ];
 
     $form['fieldset_mapping']['events_name'] = [
       '#type' => 'hidden',
       '#title' => 'Event system name',
-      '#default_value' => $this->configuration['events_name'] ?? $this->get_event_attributs($form, $form_state, true)[1],
+      '#default_value' => $this->configuration['events_name'] ?? $this->get_event_attributs($form, $form_state, TRUE)[1],
     ];
-
 
     $webform_fields = $this->get_webform_fields();
 
@@ -426,13 +485,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       $form['fieldset_mapping'][$key]['field'] = [
         '#type' => 'textfield',
         '#default_value' => $fname,
-        '#disabled' => true,
+        '#disabled' => TRUE,
         '#size' => 15,
 
       ];
       $form['fieldset_mapping'][$key]['select'] = [
         '#type' => 'select',
-        '#options' => $this->get_event_attributs($form, $form_state, true)[0],
+        '#options' => $this->get_event_attributs($form, $form_state, TRUE)[0],
         '#default_value' => $this->configuration['select_' . $key] ?? 0,
         '#prefix' => '<div id="select_' . $key . '">',
         '#suffix' => '</div>',
@@ -444,6 +503,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $this->setSettingsParents($form);
   }
 
+  /**
+   *
+   */
   private function get_webform_fields() {
     $webform_fields = [];
     $webform_fields_type = [];
@@ -456,8 +518,8 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         case 'radios':
         case 'checkbox':
         case 'hidden':
-          case 'webform_scale':
-        // case 'checkboxes':
+        case 'webform_scale':
+          // Case 'checkboxes':
           $webform_fields[$key] = $field['#title'];
           $webform_fields_type[$key] = $field['#type'];
           break;
@@ -466,6 +528,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return [$webform_fields, $webform_fields_type];
   }
 
+  /**
+   *
+   */
   private function get_options(string $element) {
     $opt = [];
     foreach ($this->getWebform()->getElementInitialized($element)['#options'] as $key => $value) {
@@ -474,8 +539,11 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $opt;
   }
 
-  private function get_status($counted = true) {
-    $participantStatusTypes = \Civi\Api4\ParticipantStatusType::get(FALSE)
+  /**
+   *
+   */
+  private function get_status($counted = TRUE) {
+    $participantStatusTypes = ParticipantStatusType::get(FALSE)
       ->addWhere('is_active', '=', TRUE)
       ->addWhere('is_counted', '=', $counted)
       ->execute();
@@ -487,17 +555,21 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $status;
   }
 
-  private function get_event_attributs($form, $form_state, $first_select = false) {
+  /**
+   *
+   */
+  private function get_event_attributs($form, $form_state, $first_select = FALSE) {
 
-    if ($form_state instanceof \Drupal\Core\Form\SubformState === true) {
+    if ($form_state instanceof SubformState === TRUE) {
       $selctedOption = $form_state->getValue('fieldset_mapping')['events'] ??
         $form['fieldset_mapping']['events']['#default_value'];
-    } else {
+    }
+    else {
       $selctedOption = $form_state->getValue('settings')['fieldset_mapping']['events'] ??
         $form['fieldset_mapping']['events']['#default_value'];
     }
 
-    $customGroups = \Civi\Api4\CustomGroup::get(FALSE)
+    $customGroups = CustomGroup::get(FALSE)
       ->addSelect('id', 'name', 'custom_field.id', 'custom_field.name', 'custom_field.label', 'custom_field.data_type', 'custom_field.text_length', 'custom_field.option_group_id')
       ->addJoin('CustomField AS custom_field', 'LEFT', ['custom_field.custom_group_id', '=', 'id'])
       ->addWhere('extends_entity_column_value', 'CONTAINS', $selctedOption)
@@ -505,7 +577,8 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     if ($first_select) {
       $custom_fields[0] = 'Select value...';
-    } else {
+    }
+    else {
       $custom_fields = [];
     }
 
@@ -515,8 +588,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return [$custom_fields, $customGroups->first()['name'], $customGroups->first()['id']];
   }
 
-
-
+  /**
+   *
+   */
   public function responseOptionCallback(array &$form, FormStateInterface $form_state) {
     $selctedOption = $form_state->getValue('settings')['fieldset_response']['field_response'];
 
@@ -526,7 +600,10 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $elements1['fieldset_response']['field_response']['option'];
   }
 
-  public function  inscritOptionCallback(array &$form, FormStateInterface $form_state) {
+  /**
+   *
+   */
+  public function inscritOptionCallback(array &$form, FormStateInterface $form_state) {
     $selctedOption = $form_state->getValue('settings')['fieldset_participe']['field_inscrit'];
 
     $elements1 = WebformFormHelper::flattenElements($form);
@@ -535,10 +612,13 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $elements1['fieldset_participe']['status_inscription']['option'];
   }
 
-  // Get the value from example select field and fill
-  // the textbox with the selected text.
+  // Get the value from example select field and fill.
+
+  /**
+   * The textbox with the selected text.
+   */
   public function mappingAjaxCallback(array &$form, FormStateInterface $form_state) {
-    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $info_attrib = $this->get_event_attributs($form, $form_state, TRUE);
     $attrib = $info_attrib[0];
 
     $elements = WebformFormHelper::flattenElements($form);
@@ -571,24 +651,28 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     ];
 
     // Reconstruit l'element
-    // lors du traitement, les données de #destination sont recopiées dans la table
+    // lors du traitement, les données de #destination sont recopiées dans la table.
     WebformMapping::processWebformMapping($element, $form_state, $form);
 
-    if (!$form_state->getErrors()) { //only if form has no errors
+    // Only if form has no errors.
+    if (!$form_state->getErrors()) {
       $response = new AjaxResponse();
       // $response->addCommand(new BeforeCommand("#mappingfield", $elements['mapping']));
       $response->addCommand(new ReplaceCommand("#mappingfield", $element));
       return $response;
-    } else {
+    }
+    else {
       return $elements['fieldset_mapping']['mapping'];
     }
   }
 
+  // Get the value from example select field and fill.
 
-  // Get the value from example select field and fill
-  // the textbox with the selected text.
+  /**
+   * The textbox with the selected text.
+   */
   public function mapping1AjaxCallback(array &$form, FormStateInterface $form_state) {
-    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $info_attrib = $this->get_event_attributs($form, $form_state, TRUE);
     $attrib = $info_attrib[0];
 
     $elements = WebformFormHelper::flattenElements($form);
@@ -597,21 +681,26 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     $elements['fields1']['#options'] = $attrib;
     $elements['fields2']['#options'] = $attrib;
 
-    if (!$form_state->getErrors()) { //only if form has no errors
+    // Only if form has no errors.
+    if (!$form_state->getErrors()) {
       $response = new AjaxResponse();
       $response->addCommand(new ReplaceCommand("#mapping-field", ($elements['fields'])));
       $response->addCommand(new ReplaceCommand("#mapping1-field", ($elements['fields1'])));
       $response->addCommand(new ReplaceCommand("#mapping2-field", ($elements['fields2'])));
       return $response;
-    } else {
+    }
+    else {
       return $elements;
     }
   }
 
-  // Get the value from example select field and fill
-  // the textbox with the selected text.
+  // Get the value from example select field and fill.
+
+  /**
+   * The textbox with the selected text.
+   */
   public function mapping2AjaxCallback(array &$form, FormStateInterface $form_state) {
-    $info_attrib = $this->get_event_attributs($form, $form_state, true);
+    $info_attrib = $this->get_event_attributs($form, $form_state, TRUE);
     $attrib = $info_attrib[0];
     $elements = WebformFormHelper::flattenElements($form);
     $event = $form_state->getValue('settings')['fieldset_mapping']['events'];
@@ -620,11 +709,12 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     foreach ($this->get_webform_fields()[0] as $key => $field) {
       $elements['fieldset_mapping'][$key]['select']['#options'] = $attrib;
       if ($event == $event_config) {
-        // utilise #value et non #default_value
+        // Utilise #value et non #default_value
         // voir https://www.drupal.org/project/drupal/issues/2895887
         $elements['fieldset_mapping'][$key]['select']['#value'] = $this->configuration['select_' . $key];
         $elements['fieldset_mapping']['events_name']['#value'] = $this->configuration['events_name'] ?? $info_attrib[1];
-      } else {
+      }
+      else {
         $elements['fieldset_mapping'][$key]['select']['#value'] = 0;
         $elements['fieldset_mapping']['events_name']['#value'] = $info_attrib[1];
       }
@@ -633,21 +723,22 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $response;
   }
 
+  // Get the value from example select field and fill.
 
-
-  // Get the value from example select field and fill
-  // the textbox with the selected text.
+  /**
+   * The textbox with the selected text.
+   */
   public function myAjaxCallback(array &$form, FormStateInterface $form_state) {
     $selctedOption = $form_state->getValue('settings')['events'];
 
     $elements = $this->webform->getElementsInitialized();
 
-    $customGroups = \Civi\Api4\CustomGroup::get(TRUE)
+    $customGroups = CustomGroup::get(TRUE)
       ->addSelect('id', 'name', 'title')
       ->addWhere('extends_entity_column_value', '=', $selctedOption)
       ->addChain(
         'fields',
-        \Civi\Api4\CustomField::get(TRUE)
+        CustomField::get(TRUE)
           ->addWhere('custom_group_id', '=', '$id')
       )
       ->execute();
@@ -657,25 +748,27 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       foreach ($customGroup['fields'] as $field) {
         $form['settings']['fields']['#options'][$field['id']] = $field['label'];
       }
-      // do something
+      // Do something.
     }
 
     return $form['settings']['fields'];
   }
 
-  // Get the value from example select field and fill
-  // the textbox with the selected text.
+  // Get the value from example select field and fill.
+
+  /**
+   * The textbox with the selected text.
+   */
   public function myAjaxCallback1(array &$form, FormStateInterface $form_state) {
     // Return the prepared textfield.
-    $customGroups = \Civi\Api4\CustomGroup::get(TRUE)
+    $customGroups = CustomGroup::get(TRUE)
       ->addSelect('*', 'custom.*')
       ->addWhere('extends_entity_column_value', '=', 54)
       ->setLimit(25)
       ->execute();
     $form['fields']['#options'] = [];
     foreach ($customGroups as $customGroup) {
-      // do something
-
+      // Do something.
     }
 
     return $form['fields'];
@@ -706,6 +799,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     }
     $this->configuration['check_on_page'] = $form_state->getValue('prev_submission')['check_on_page'];
   }
+
   /**
    * {@inheritdoc}
    */
@@ -735,34 +829,33 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     /* // check if attribute 'check_existing' exist in Element custom attributes for this Wizard Page element
     // and if is set to true
     if ((isset($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'])) &&
-      ($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'] == true)
+    ($form['elements'][$form['progress']['#current_page']]['#attributes']['check_existing'] == true)
     ) { */
-      if ((isset($this->configuration['check_on_page'])) &&
-          ($this->configuration['check_on_page'] == $form['progress']['#current_page'] )) {
-      // check if an submission exist
+    if ((isset($this->configuration['check_on_page'])) &&
+          ($this->configuration['check_on_page'] == $form['progress']['#current_page'])) {
+      // Check if an submission exist.
       $previus_webform_submission = $form_state->getFormObject()->getEntity();
       if ($previus_webform_submission->getState() == 'unsaved') {
-        // new submission
+        // New submission
         // check if there is a submission for this user (anonymous)
-
         // Static query
         // https://www.drupal.org/docs/drupal-apis/database-api/static-queries
         $database = \Drupal::database();
         $result = $database->query("SELECT max(sid) as sid FROM `drupal_webform_submission_data` WHERE `webform_id` = '" .
           $this->getWebform()->id() . "' and name = 'civicrm_id' and value = '" . $form_state->getValue('civicrm_id') . "';");
-        // last previous submission for this civicrm_id
+        // Last previous submission for this civicrm_id.
         if ($result) {
           while ($row = $result->fetchAssoc()) {
-            if ($row['sid'] === null) {
+            if ($row['sid'] === NULL) {
               continue;
             }
-            // load submission
+            // Load submission.
             $webform_submission = WebformSubmission::load($row['sid']);
-            // and save it in form_state
+            // And save it in form_state.
             $form_state->getFormObject()->setEntity($webform_submission);
 
             foreach ($this->webformSubmission->getData() as $key => $value) {
-              // and set previous values
+              // And set previous values.
               $form_state->setValue($key, $value);
             }
           }
@@ -898,4 +991,5 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
       $this->messenger()->addWarning($this->t('Invoked @id: @class_name:@method_name @context1', $t_args), TRUE);
     }
   }
+
 }
