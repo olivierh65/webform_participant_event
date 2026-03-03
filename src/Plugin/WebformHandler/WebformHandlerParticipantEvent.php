@@ -74,6 +74,21 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     \Drupal::service('civicrm')->initialize();
 
     $datas = $webform_submission->getData();
+    // Try to fill civicrm_id, nom, prenom, email and portable with IdentifyLoginHandler data if exist.
+    if (empty($datas['civicrm_id']) && !empty($datas['cid'])) {
+      $datas['civicrm_id'] = $datas['cid'];
+    }
+    if (empty($datas['prenom']) && !empty($datas['first_name'])) {
+      $datas['prenom'] = $datas['first_name'];
+    }
+    if (empty($datas['nom']) && !empty($datas['last_name'])) {
+      $datas['nom'] = $datas['last_name'];
+    }
+
+    if (empty($datas['portable']) && !empty($datas['phone'])) {
+      $datas['portable'] = $datas['phone'];
+    }
+
     if (empty($datas['civicrm_id'])) {
       // No civicrm_id, if user is connected, try to retrieve civicrm_id from contact_id field.
       $user = \Drupal::currentUser();
