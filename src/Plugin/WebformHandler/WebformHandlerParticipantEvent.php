@@ -75,18 +75,30 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
 
     $datas = $webform_submission->getData();
     // Try to fill civicrm_id, nom, prenom, email and portable with IdentifyLoginHandler data if exist.
-    if (empty($datas['civicrm_id']) && !empty($datas['cid'])) {
-      $datas['civicrm_id'] = $datas['cid'];
+    // Récupérer les valeurs ET l'élément composite pour avoir accès à #secret_key.
+    $elements = $this->webform->getElementsInitializedAndFlattened();
+    $values = [];
+    $composite_element = NULL;
+
+    foreach ($elements as $key => $element) {
+      if (($element['#type'] ?? NULL) === 'identity_login_composite') {
+        $values = $element['#webform_key'];
+        $composite_element = $element;
+        break;
+      }
     }
-    if (empty($datas['prenom']) && !empty($datas['first_name'])) {
-      $datas['prenom'] = $datas['first_name'];
+    if (empty($datas['civicrm_id']) && !empty($datas[$values]['cid'])) {
+      $datas['civicrm_id'] = $datas[$values]['cid'];
     }
-    if (empty($datas['nom']) && !empty($datas['last_name'])) {
-      $datas['nom'] = $datas['last_name'];
+    if (empty($datas['prenom']) && !empty($datas[$values]['first_name'])) {
+      $datas['prenom'] = $datas[$values]['first_name'];
+    }
+    if (empty($datas['nom']) && !empty($datas[$values]['last_name'])) {
+      $datas['nom'] = $datas[$values]['last_name'];
     }
 
-    if (empty($datas['portable']) && !empty($datas['phone'])) {
-      $datas['portable'] = $datas['phone'];
+    if (empty($datas['portable']) && !empty($datas[$values]['phone'])) {
+      $datas['portable'] = $datas[$values]['phone'];
     }
 
     if (empty($datas['civicrm_id'])) {
@@ -101,7 +113,7 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
         if ($contact_id) {
           $datas['civicrm_id'] = $contact_id;
 
-          if (empty($data['nom']) || empty($data['prenom']) || empty($data['email'])) {
+          if (empty($datas['nom']) || empty($datas['prenom']) || empty($datas['email'])) {
             $contact = Contact::get(FALSE)
               ->addSelect('first_name', 'last_name', 'email_primary.email')
               ->addWhere('id', '=', $contact_id)
