@@ -96,7 +96,9 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     if (empty($datas['nom']) && !empty($datas[$values]['last_name'])) {
       $datas['nom'] = $datas[$values]['last_name'];
     }
-
+    if (empty($datas['email']) && !empty($datas[$values]['email'])) {
+      $datas['email'] = $datas[$values]['email'];
+    }
     if (empty($datas['portable']) && !empty($datas[$values]['phone'])) {
       $datas['portable'] = $datas[$values]['phone'];
     }
