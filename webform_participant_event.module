@@ -11,14 +11,16 @@ use Drupal\webform\Utility\WebformFormHelper;
 /**
  * Implements hook_theme().
  */
-function webform_participant_event_theme() {
-    return [
-      'webform_participant_event_summary' => [
-        'variables' => ['settings' => NULL, 'handler' => []],
-      ],
-    ];
-  }
-  
+function webform_participant_event_theme($existing, $type, $theme, $path) {
+  return [
+    'webform_handler_participant_participant_event_summary' => [
+      'variables' => ['settings' => NULL, 'handler' => []],
+      'path' => $path . '/templates',
+      'template' => 'webform-handler-participant-participant-event-summary',
+    ],
+  ];
+}
+
 /**
  * Implements hook_mail().
  */

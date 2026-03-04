@@ -1,0 +1,35 @@
+{#
+/**
+ * @file
+ * Summary for the Participant Event webform handler.
+ */
+#}
+{% if settings.debug %}
+  <b class="color-warning">{{ 'Debugging is enabled'|t }}</b><br />
+{% endif %}
+
+<b>{{ 'Handler:'|t }}</b> {{ handler.label }}<br />
+<b>{{ 'Event:'|t }}</b>
+{% if settings.events_name is defined and settings.events_name %}
+  {{ settings.events_name }}
+{% elseif settings.events is defined and settings.events %}
+  #{{ settings.events }}
+{% else %}
+  {{ 'Not configured'|t }}
+{% endif %}
+<br />
+
+<b>{{ 'Check previous submission on page:'|t }}</b>
+{{ settings.check_on_page is defined and settings.check_on_page ? settings.check_on_page : 'Not configured'|t }}
+<br />
+
+<b>{{ 'Participation status rule:'|t }}</b>
+{{ settings.field_inscrit is defined and settings.field_inscrit ? settings.field_inscrit : 'N/A' }}
+→ {{ settings.field_inscrit_option is defined ? settings.field_inscrit_option : 'N/A' }}
+→ {{ settings.field_inscrit_status is defined ? settings.field_inscrit_status : 'N/A' }}
+<br />
+
+<b>{{ 'Decline status rule:'|t }}</b>
+{{ settings.field_response is defined and settings.field_response ? settings.field_response : 'N/A' }}
+→ {{ settings.field_response_option is defined ? settings.field_response_option : 'N/A' }}
+→ {{ settings.field_response_status is defined ? settings.field_response_status : 'N/A' }}
