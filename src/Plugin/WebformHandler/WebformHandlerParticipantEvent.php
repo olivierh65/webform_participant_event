@@ -532,17 +532,20 @@ class WebformHandlerParticipantEvent extends WebformHandlerBase {
     return $this->setSettingsParents($form);
   }
 
-private function get_event_name($event_id) {
-  if (empty($event_id)) {
-    return '';
+  /**
+   *
+   */
+  private function get_event_name($event_id) {
+    if (empty($event_id)) {
+      return '';
+    }
+    $event = Event::get(FALSE)
+      ->addSelect('title')
+      ->addWhere('id', '=', $event_id)
+      ->execute()
+      ->first();
+    return $event['title'] ?? '';
   }
-  $event = Event::get(FALSE)
-    ->addSelect('title')
-    ->addWhere('id', '=', $event_id)
-    ->execute()
-    ->first();
-  return $event['title'] ?? '';
-}
 
   /**
    *
@@ -626,17 +629,17 @@ private function get_event_name($event_id) {
     foreach ($customGroups as $customGroup) {
       $custom_fields[$customGroup['custom_field.id']] = $customGroup['custom_field.label'];
     }
-// Debug
-/*
-\Drupal::logger('webform_participant_event')->debug(
-  'get_event_attributs - selctedOption: @option | customGroups count: @count | first: @first',
-  [
+    // Debug.
+    /*
+    \Drupal::logger('webform_participant_event')->debug(
+    'get_event_attributs - selctedOption: @option | customGroups count: @count | first: @first',
+    [
     '@option' => var_export($selctedOption, TRUE),
     '@count'  => count($customGroups),
     '@first'  => var_export($customGroups->first(), TRUE),
-  ]
-);
-*/
+    ]
+    );
+     */
 
     return [$custom_fields, $customGroups->first()['name'] ?? 'nom_inconnu', $customGroups->first()['id'] ?? NULL];
   }
@@ -843,8 +846,8 @@ private function get_event_name($event_id) {
     $this->configuration['field_response_status'] = $form_state->getValue('fieldset_noparticipe')['status_response']['status'];
     $this->configuration['events'] = $form_state->getValue('fieldset_mapping')['events'];
     $this->configuration['events_name'] = $this->get_event_name(
-  $form_state->getValue('fieldset_mapping')['events']
-);
+    $form_state->getValue('fieldset_mapping')['events']
+    );
     foreach ($this->get_webform_fields()[0] as $key => $field) {
       $e = $form_state->getValue('fieldset_mapping')[$key];
       if ($e['select'] == 0) {
